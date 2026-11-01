@@ -112,8 +112,13 @@ def wait_for_wake_word():
                     text = _transcribe(recognizer, audio)
                     print(f"[STT] Heard: '{text}'", flush=True)
                     
-                    # Check for either the guest trigger or the admin bypass (Added 'wakeup' as one word just in case)
-                    if "wake up" in text or "admin override" in text or "wakeup" in text:
+                    # Check for guest triggers, admin bypass, or new project wake phrases
+                    wake_phrases = [
+                        "wake up", "wakeup", "admin override",
+                        "hello jarvis", "hey jarvis",
+                        "it's time to project jarvis", "its time to project jarvis", "time to project jarvis"
+                    ]
+                    if any(p in text for p in wake_phrases) or re.search(r"\bwake\b.*\bup\b", text):
                         print(f"\n[BOOT SEQUENCE INITIATED VIA: {text}]", flush=True)
                         return text  # CRITICAL: We return the string, not a boolean
                     
@@ -179,7 +184,8 @@ def wait_for_jarvis():
                         "hello jarvis", "hello jervis", "hello chavis",
                         "hey jarvis", "hey jervis",
                         "hi jarvis", "hi jervis",
-                        "jarvis", "jervis", "chavis", "charvis"
+                        "jarvis", "jervis", "chavis", "charvis",
+                        "it's time to project jarvis", "its time to project jarvis", "time to project jarvis"
                     ]
                     
                     # Skip very short transcriptions (likely noise fragments)

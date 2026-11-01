@@ -28,11 +28,11 @@ from modules.groq_key_manager import run_with_key_rotation
 OLLAMA_URL        = os.getenv("OLLAMA_URL", "http://localhost:11434/api/chat")
 LOCAL_MODEL       = os.getenv("OLLAMA_MODEL", "llama3:8b")          # primary reasoning
 VISION_MODEL      = os.getenv("OLLAMA_VISION_MODEL", "llava:latest")  # vision cortex
-GROQ_MODEL        = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_MODEL        = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 # Gemini cloud fallback — separate org/quota from Groq, so a drained Groq daily
 # bucket escalates here instead of dying. Skipped automatically if GEMINI_API_KEY
 # is unset. Uses the legacy google-generativeai SDK (already a dependency).
-GEMINI_MODEL      = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL      = "gemini-3.5-flash-lite"
 # Lowered from 30s: a healthy local 8B returns its first token well under 15s.
 # If the local cortex can't meet this, the circuit breaker (below) routes to the
 # cloud instead of making every single call wait out a long timeout.
@@ -96,13 +96,13 @@ def _route_order(complexity: str, model: str | None) -> list[str]:
     """
     if model and "llava" in model.lower():
         return ["ollama"]
-    # Multi-provider fallback chain: Groq -> Gemini -> Ollama
-    order = ["groq", "gemini", "ollama"]
+    # Multi-provider fallback chain: Gemini -> Groq -> Ollama
+    order = ["gemini", "groq", "ollama"]
 
     if not _gemini_configured():
         order = [p for p in order if p != "gemini"]
     if _ollama_breaker_open():
-        order = [p for p in order if p != "ollama"] or ["groq"]
+        order = [p for p in order if p != "ollama"] or ["gemini"]
     return order
 
 
@@ -220,7 +220,7 @@ def _call_groq(messages, temperature, max_tokens, stream, json_mode, timeout):
     models_to_try = []
     if GROQ_MODEL:
         models_to_try.append(GROQ_MODEL)
-    for m in ["llama-3.3-70b-versatile", "llama3-8b-8192", "gemma2-9b-it", "llama-3.1-8b-instant"]:
+    for m in ["openai/gpt-oss-120b", "qwen/qwen3.8-27b", "llama-3.3-70b-versatile"]:
         if m not in models_to_try:
             models_to_try.append(m)
 
@@ -308,6 +308,8 @@ def _split_messages_for_gemini(messages):
         else:  # user (and any unknown role) maps to user
             contents.append({"role": "user", "parts": [content]})
     system_instruction = "\n\n".join(p for p in system_parts if p) or None
+    if not contents:
+        contents.append({"role": "user", "parts": ["Hello"]})
     return system_instruction, contents
 
 

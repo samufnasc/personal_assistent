@@ -2099,7 +2099,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
                     name_lower = name_input.lower()
 
-                    kaustav_aliases = ["kaustav", "koustav", "cost of", "costav", "costab", "kosto", "costo", "cow stuff", "cowstuff", "custard", "kaustubh"]
+                    kaustav_aliases = ["kaustav", "koustav", "cost of", "costav", "costab", "kosto", "costo", "cow stuff", "cowstuff", "custard", "kaustubh", "samuel", "sam"]
                     kinshuk_aliases = ["kinshuk", "kingshook", "kinshook", "king shook", "shook", "kings hook", "kin shook", "kingshuk"]
                     mousumi_aliases = ["mousumi", "mausam", "mosumi", "mousami", "mausami", "moshumi", "moosumi", "moosmi", "mo shumi", "my sumi", "mouse me", "mousemi"]
 

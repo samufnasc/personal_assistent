@@ -494,6 +494,14 @@ function App() {
   const sendBackdoorCommand = async () => {
     const cmd = backdoorCommand.trim();
     if (!cmd) return;
+
+    // MIT-grade immediate UX feedback: add user message to chat transcript & open chat panel
+    setChatMessages((prev) => mergeChat(prev, "USER", cmd));
+    setIsChatOpen(true);
+    setLogSpeaker("USER");
+    setLogTextRaw(cmd);
+    setBackdoorCommand("");
+
     try {
       const res = await fetch("http://localhost:8000/api/backdoor", {
         method: "POST",
@@ -503,11 +511,13 @@ function App() {
       if (!res.ok) {
         const t = await res.text();
         console.error("[Backdoor] HTTP", res.status, t);
+        setChatMessages((prev) => mergeChat(prev, "J.A.R.V.I.S", `Execution error (HTTP ${res.status}).`));
         return;
       }
-      setBackdoorCommand("");
+      // WebSocket handles execution results, responses, and TTS speech
     } catch (e) {
       console.error("Backdoor error (is the API running on :8000?):", e);
+      setChatMessages((prev) => mergeChat(prev, "J.A.R.V.I.S", "Local AI cortex offline — unable to reach backend on :8000."));
     }
   };
 
@@ -901,6 +911,13 @@ function App() {
             EXECUTE
           </button>
           <div className="hud-command-terminal__tools">
+            <button
+              type="button"
+              onClick={startVoiceCommand}
+              title="Activate microphone listening"
+            >
+              MIC
+            </button>
             <button
               type="button"
               onClick={() => setIsCalculatorOpen((v) => !v)}
