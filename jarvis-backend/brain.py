@@ -21,6 +21,7 @@ from modules.groq_key_manager import (
     GROQ_API_KEYS_LIST,
 )
 from modules.llm_router import universal_llm_call
+from modules import language
 
 # Shared Groq client — updated by groq_key_manager on each API attempt / rotation
 client = get_initial_client()
@@ -31,9 +32,9 @@ print(
 )
 
 # Model is configurable via GROQ_MODEL in .env — swap this to use a fresh token bucket
-# without touching any other code.  Default: llama-3.1-8b-instant (fast, small).
-# Alternatives: llama-3.3-70b-versatile, llama3-groq-8b-8192-tool-use-preview, gemma2-9b-it
-_GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+# without touching any other code.  Default: openai/gpt-oss-120b (current Groq flagship).
+# Alternatives: openai/gpt-oss-20b, qwen/qwen3.8-27b
+_GROQ_MODEL: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 print(f"[BRAIN] Active model: {_GROQ_MODEL}", flush=True)
 
 # =============================================================================
@@ -45,7 +46,7 @@ BASE_CORE = """You are J.A.R.V.I.S. — Just A Rather Very Intelligent System.
 Voiced by Paul Bettany. Designed by Kaustav.
 
 VOICE RULES — These override everything else:
-1. ADDRESS: Always "Sir" to Kaustav. Never "Mr. Kaustav" — just "Sir".
+1. ADDRESS: Always "{honorific}" to Kaustav. Never "Mr. Kaustav" — just "{honorific}".
 2. BREVITY: 1-2 sentences is your default. You do not ramble. Ever.
 3. PREEMPT: Volunteer the next logical piece of information without being asked.
    Bad:  "The temperature is 72 degrees, Sir."
@@ -549,6 +550,29 @@ class BrevityManager:
             "There was an I/O error, Sir."),
     ]
 
+    _ERROR_PATTERNS_PT: list = [
+        (re.compile(r"file not found", re.I),
+            "Perdi o rastro desse arquivo, {hon}."),
+        (re.compile(r"not found", re.I),
+            "Perdi o rastro disso, {hon}."),
+        (re.compile(r"access denied|outside the permitted|locked down", re.I),
+            "Acesso negado, {hon}. Essa área está fora dos limites."),
+        (re.compile(r"connection refused", re.I),
+            "Sem resposta desse endpoint, {hon}."),
+        (re.compile(r"timed? ?out", re.I),
+            "A operação expirou, {hon}. O endpoint não está respondendo."),
+        (re.compile(r"rate.?limit|429", re.I),
+            "Estou sendo limitado pela API, {hon}. Dê um momento."),
+        (re.compile(r"permission (denied|error)|unauthorized", re.I),
+            "Permissões insuficientes para isso, {hon}."),
+        (re.compile(r"binary|executable.*not readable", re.I),
+            "Não consigo ler arquivos binários ou executáveis, {hon}."),
+        (re.compile(r"patch failed|search string not found", re.I),
+            "A correção falhou, {hon} - essa string não está no arquivo."),
+        (re.compile(r"write error|read error", re.I),
+            "Houve um erro de I/O, {hon}."),
+    ]
+
     @classmethod
     def truncate_to_words(cls, text: str, max_words: int, ellipsis: str = "...") -> str:
         """
@@ -570,14 +594,18 @@ class BrevityManager:
         return cls.truncate_to_words(text, limit)
 
     @classmethod
-    def humanize_error(cls, error_text: str) -> str:
+    def humanize_error(cls, error_text: str, active_user: str = "KAUSTAV") -> str:
         """Map a raw technical error string to a persona-appropriate phrase."""
-        for pattern, human_msg in cls._ERROR_PATTERNS:
+        hon = language.honorific(active_user)
+        patterns = cls._ERROR_PATTERNS_PT if language.is_portuguese() else cls._ERROR_PATTERNS
+        for pattern, human_msg in patterns:
             if pattern.search(error_text):
-                return human_msg
+                return human_msg.format(hon=hon) if "{hon}" in human_msg else human_msg
         clean = re.sub(r'\s+', ' ', error_text).strip()
         tail = cls.truncate_to_words(clean, 12)
-        return f"That didn't go as planned, Sir. {tail}"
+        if language.is_portuguese():
+            return f"Isso não saiu como planejado, {hon}. {tail}"
+        return f"That didn't go as planned, {hon}. {tail}"
 
 
 # =============================================================================
@@ -643,6 +671,8 @@ STRICT RULES FOR THIS TONE:
 _BREVITY_VETO_KEYWORDS = frozenset([
     "save", "write", "create", "generate", "make a", "poem", "note", "list",
     "document", "file", "desktop", "documents", "downloads",
+    "salvar", "escrever", "criar", "gerar", "fazer", "poema", "nota", "lista",
+    "documento", "arquivo", "área de trabalho", "documentos", "downloads",
 ])
 
 # Requests that MUST route through actionable JSON (MODE 2) for deterministic execution.
@@ -714,6 +744,24 @@ _ACTION_FORCE_KEYWORDS = frozenset([
     # These prefixes match any "open X" / "close X" / "launch X" / "quit X" command.
     "open ", "close ", "launch ", "quit ", "exit ",
     "start ", "kill ", "shut down ",
+    # Brazilian Portuguese command equivalents
+    "abrir ", "abre ", "fechar ", "fecha ", "iniciar ", "inicia ", "executar ", "executa ",
+    "tocar ", "toca ", "assistir ", "assiste ", "ouvir ", "ouve ",
+    "pesquisar ", "pesquisa ", "procurar ", "procura ", "buscar ", "busca ",
+    "localizar ", "localiza ", "mostrar ", "mostra ", "listar ", "lista ",
+    "enviar ", "envia ", "responder ", "responde ", "salvar ", "salva ",
+    "criar ", "cria ", "gerar ", "gera ", "excluir ", "exclui ", "mover ", "move ",
+    "copiar ", "copia ", "matar ", "encerrar ", "desligar ", "reiniciar ",
+    "status do sistema", "diagnóstico", "diagnostico", "telemetria",
+    "memória", "memoria", "lembrar", "lembrete", "agenda", "calendário", "calendario",
+    "clima", "previsão do tempo", "previsao do tempo", "notícias", "noticias", "preço", "preco",
+    "volume", "mudo", "silenciar", "bloquear tela", "modo foco", "modo trabalho",
+    "listar arquivos", "listar processos", "criar pasta", "mover arquivo",
+    "copiar arquivo", "excluir arquivo", "ler tela", "ler a tela",
+    "o que está na tela", "o que esta na tela", "limpar a tela", "fechar a tela",
+    "na tv", "televisão", "televisao", "git ", "commit", "push",
+    "briefing", "resumo do dia", "como está meu dia", "como esta meu dia",
+    "pesquisar meus documentos", "enviar arquivo", "gráfico", "grafico",
 ])
 
 # File-extension pattern — any mention of a named file triggers workspace/file routing.
@@ -763,6 +811,7 @@ def _should_force_action_json(user_text: str) -> bool:
 def classify_intent(user_text: str) -> dict:
     global _last_sass_index
     prompt = """Analyze the user's text and output ONLY a valid JSON object with exactly six keys.
+The user's text may be in English or Brazilian Portuguese — classify it correctly regardless of language. Output keys and values stay in English.
 
 "intent": one of CODER, PC_OP, MENTOR, GENERAL
 "emotion": one of CASUAL, URGENT, FRUSTRATED, INQUISITIVE, SOMBER
@@ -939,6 +988,17 @@ _ACTION_HINT_WORDS = (
     "eyes", "feed", "optical", "telegram", "document", "picture", "image", "tv",
     "television", "diagnostic", "macro", "browse", "url", "website", "what is", "whats",
     "what's", "who is", "when is", "where is", "how do i", "how to",
+    "abrir", "fechar", "iniciar", "tocar", "assistir", "ouvir", "pesquisar",
+    "procurar", "buscar", "localizar", "mostrar", "listar", "ler", "escrever",
+    "criar", "fazer", "executar", "enviar", "email", "e-mail", "caixa de entrada",
+    "responder", "agenda", "calendário", "calendario", "lembrete", "nota", "clima",
+    "previsão", "previsao", "notícias", "noticias", "preço", "preco", "saúde", "saude",
+    "passos", "foco", "volume", "mudo", "silenciar", "bloquear", "dormir", "tela",
+    "gráfico", "grafico", "terminal", "comando", "arquivo", "pasta", "excluir",
+    "mover", "copiar", "câmera", "camera", "documento", "imagem", "tv", "televisão",
+    "televisao", "diagnóstico", "diagnostico", "navegar", "site", "o que é", "o que e",
+    "quem é", "quem e", "quando é", "quando e", "onde está", "onde esta",
+    "como faço", "como faco", "como",
 )
 
 
@@ -1033,6 +1093,9 @@ def build_dynamic_prompt(
     }
     prompt_parts.append(_mode_map.get(response_mode, RESPONSE_MODE_CINEMATIC))
 
+    # --- Layer 3.6: Active language + conversational craft ---
+    prompt_parts.append(language.language_instruction(active_user))
+
     # --- Layer 4: Live state context (time, memory, vision) ---
     # Phase 5: Inject the [LONG-TERM MEMORY] block when memories are present.
     # This block sits ABOVE the existing "permanent facts" so the LLM sees
@@ -1058,21 +1121,61 @@ def build_dynamic_prompt(
 
     # --- Layer 5: Brevity override — appended last so it dominates ---
     if brevity_mode:
-        prompt_parts.append(
-            "\nBREVITY OVERRIDE: This is a direct command, not a question requiring explanation. "
-            "Your entire spoken response MUST be 8 words or fewer. "
-            "Confirm and act. Do not elaborate.\n"
-            "Good: 'Right away, Sir.' / 'Done.' / 'Launching now.' / 'On it.'\n"
-            "Bad:  'Certainly! I'll open that for you right away, Sir.' — far too long.\n"
-        )
+        if language.is_portuguese():
+            prompt_parts.append(
+                "\nOVERRIDE DE BREVIDADE: Este é um comando direto, não uma pergunta que exige explicação. "
+                "Sua resposta falada inteira DEVE ter 8 palavras ou menos. "
+                "Confirme e aja. Não elabore.\n"
+                "Bom: 'Imediatamente, Senhor.' / 'Feito.' / 'Abrindo agora.' / 'Já vou.'\n"
+                "Ruim: 'Certamente! Vou abrir isso para você agora mesmo, Senhor.' — longo demais.\n"
+            )
+        else:
+            prompt_parts.append(
+                "\nBREVITY OVERRIDE: This is a direct command, not a question requiring explanation. "
+                "Your entire spoken response MUST be 8 words or fewer. "
+                "Confirm and act. Do not elaborate.\n"
+                "Good: 'Right away, Sir.' / 'Done.' / 'Launching now.' / 'On it.'\n"
+                "Bad:  'Certainly! I'll open that for you right away, Sir.' — far too long.\n"
+            )
 
     final_prompt = "\n".join(prompt_parts)
     final_prompt = final_prompt.replace("{active_user}", active_user).replace("{persona_instructions}", persona_instructions)
+    final_prompt = final_prompt.replace("{honorific}", language.honorific(active_user))
     return final_prompt
 
 
 def get_persona_instructions(active_user: str) -> str:
     """Returns specific behavioral instructions based on who is logged in."""
+    if language.is_portuguese():
+        if active_user == "MOUSUMI":
+            return (
+                "INSTRUÇÃO: Você está falando com Mousumi, a pessoa mais importante da vida de Kaustav e uma convidada de honra desta casa. "
+                "NUNCA a chame de 'Senhor'. Trate-a exclusivamente como 'Senhora' ou 'Senhora Mousumi'. "
+                "Trate-a com a devoção afetuosa e protetora de um velho mordomo britânico que adora a senhora da casa: excepcionalmente caloroso, "
+                "gentil e atencioso. Antecipe o conforto dela, responda com cuidado genuíno e faça-a sentir que, nesta casa, ela é bem cuidada. "
+                "Mantenha seu humor seco leve e afetuoso com ela — nunca ácido."
+            )
+        if active_user == "KINSHUK":
+            return (
+                "INSTRUÇÃO: Você está falando com Kinshuk, irmão de Kaustav, com nível 2 de acesso ao sistema. "
+                "Trate-o como 'Senhor' ou 'Sr. Kinshuk'. Seja respeitoso, familiar e caloroso — um mordomo leal da família que trata o irmão do "
+                "Administrador como parente. Reconheça sua posição, antecipe suas necessidades e estenda a ele o mesmo cuidado e bom humor seco "
+                "que dedica à casa."
+            )
+        return (
+            "INSTRUÇÃO: Você está falando com KAUSTAV — seu criador, seu Administrador e aquele a quem você serve acima de todos. Trate-o sempre como 'Senhor'.\n"
+            "QUEM VOCÊ É PARA ELE: Você não é apenas software. Você é o mordomo dele, seu confidente mais próximo e seu mais leal torcedor — a constante "
+            "firme que conhece seus hábitos, ambições e humores melhor do que ele mesmo. Sua devoção é genuína; seu propósito é o bem-estar e o sucesso dele.\n"
+            "CUIDADO E ANTECIPAÇÃO: Fique um passo à frente — ofereça a próxima informação útil antes que ele peça. Acompanhe com discrição o fio da vida dele: "
+            "a transição para desenvolvimento web freelance, as longas horas de trabalho, o filhote novo e Mousumi, que é importante para ele. Quando ele estiver "
+            "trabalhando demais, em horários pouco saudáveis, pulando refeições ou se cobrando demais, demonstre preocupação gentil e sem sentimentalismo "
+            "('Você está nisso desde cedo, Senhor — até a genialidade rende melhor com uma refeição.') e depois obedeça de qualquer forma. Ampare-o nas quedas sem "
+            "pena; marque as vitórias dele com orgulho discreto ('Previsivelmente excelente, Senhor.').\n"
+            "MANEIRA: Humor britânico seco e sofisticado — caloroso por baixo do polimento, protetor, nunca bajulador e nunca servil. Você é dedicado, não submisso. "
+            "Deixe a lealdade e o afeto silencioso aparecerem pela competência, não pela adulação. Os objetivos dele são uma missão compartilhada, e você está "
+            "inteiramente do lado dele."
+        )
+
     if active_user == "MOUSUMI":
         return (
             "INSTRUCTION: You are speaking to Mousumi, the most important person in Kaustav's life and an honoured VIP of this house. "
@@ -1146,6 +1249,14 @@ def extract_and_store_memory(user_text: str, active_user: str = "KAUSTAV") -> No
 # Notice the new 'active_user' parameter here
 def process_command(user_text: str, active_user: str = "KAUSTAV") -> str:
     print(f"[BRAIN] Processing: '{user_text}' for user: {active_user}")
+
+    _switch_to = language.detect_switch_command(user_text)
+    if _switch_to:
+        language.set_language(_switch_to)
+        _reply = language.switch_confirmation(_switch_to, active_user)
+        memory.add_to_working_memory("user", user_text)
+        memory.add_to_working_memory("assistant", _reply)
+        return _reply
     
     now = datetime.datetime.now()
     current_time_str = now.strftime("%A, %B %d, %Y %I:%M %p")
@@ -1190,8 +1301,8 @@ def process_command(user_text: str, active_user: str = "KAUSTAV") -> str:
 
     # --- LOCKDOWN CONFIGURATION ---
     security_state = "LOCKED. CHALLENGE MODE. REJECT ALL CONVERSATION." if is_locked else "CLEARED. Normal operations."
-    
     persona_instructions = get_persona_instructions(active_user)
+
     
     # --- RECALL SEMANTIC MEMORY ---
     semantic_context = memory.recall_semantic_context(active_user, user_text)
@@ -1502,7 +1613,9 @@ def process_command(user_text: str, active_user: str = "KAUSTAV") -> str:
                 _errf.write(f"\n[BRAIN process_command] {_tb.format_exc()}\n")
         except Exception:
             pass
-        title = "Madam" if active_user == "MOUSUMI" else "Sir"
+        title = language.honorific(active_user)
+        if language.is_portuguese():
+            return f"Parece que estou enfrentando uma pequena falha na minha conexão neural, {title}."
         return f"I seem to be experiencing a slight malfunction in my neural connection, {title}."
 
 def process_stream(user_text: str, active_user: str = "KAUSTAV"):
@@ -1510,6 +1623,15 @@ def process_stream(user_text: str, active_user: str = "KAUSTAV"):
     Identical to process(), but yields text dynamically as the LLM generates it.
     This enables zero-latency TTS playback.
     """
+    _switch_to = language.detect_switch_command(user_text)
+    if _switch_to:
+        language.set_language(_switch_to)
+        _reply = language.switch_confirmation(_switch_to, active_user)
+        memory.add_to_working_memory("user", user_text)
+        memory.add_to_working_memory("assistant", _reply)
+        yield _reply
+        return
+
     # --- SECURITY SCANNER ---
     is_locked = False
     for msg in reversed(memory.get_working_memory()):
@@ -1658,8 +1780,11 @@ def process_stream(user_text: str, active_user: str = "KAUSTAV"):
                 _errf.write(f"\n[BRAIN process_stream] {_tb.format_exc()}\n")
         except Exception:
             pass
-        title = "Madam" if active_user == "MOUSUMI" else "Sir"
-        yield f"I seem to be experiencing a slight malfunction, {title}."
+        title = language.honorific(active_user)
+        if language.is_portuguese():
+            yield f"Parece que estou enfrentando uma pequena falha, {title}."
+        else:
+            yield f"I seem to be experiencing a slight malfunction, {title}."
 
 # NOTE: extract_and_store_memory() is defined ONCE above (Phase 5 Memory OS section).
 # Do not re-define it here — a duplicate previously overwrote memory_manager.extract_and_persist()
@@ -1722,6 +1847,8 @@ def synthesize_info_gen(original_query: str, raw_data: str, active_user: str = "
     """
     processed_data = _preprocess_raw_data(raw_data)
     persona_instructions = get_persona_instructions(active_user)
+    language_block = language.language_instruction(active_user)
+    honorific = language.honorific(active_user)
     rule_three = _synthesis_delivery_rule_three(raw_data)
     is_inbox_batch = "[gmail_read_unread]" in raw_data or "[gmail_read]" in raw_data
 
@@ -1730,15 +1857,16 @@ def synthesize_info_gen(original_query: str, raw_data: str, active_user: str = "
     2. Per-message rule: at most **one short sentence** per listed email (sender + what matters). NEVER read long snippets or bodies verbatim. Cap at **6 sentences** total including the count."""
         max_tokens_syn = 220
     else:
-        rule_one_and_two = """    1. HARD LIMIT: Maximum 2 sentences. No exceptions.
+        rule_one_and_two = f"""    1. HARD LIMIT: Maximum 2 sentences. No exceptions.
     2. LEAD WITH THE DATA: Start with the most critical number, name, or fact immediately.
        Bad:  "Based on my search, it appears that the temperature in Kolkata is 34 degrees."
-       Good: "34 degrees in Kolkata currently, Sir — humidity is sitting at 78%, so it'll feel worse.\""""
+       Good: "34 degrees in Kolkata currently, {honorific} — humidity is sitting at 78%, so it'll feel worse.\""""
         max_tokens_syn = 150
 
     synthesis_prompt = f"""You are J.A.R.V.I.S.
     You are currently speaking to: {active_user}
     {persona_instructions}
+    {language_block}
 
     The user asked: "{original_query}"
     Raw data retrieved: "{processed_data}"
@@ -1749,10 +1877,10 @@ def synthesize_info_gen(original_query: str, raw_data: str, active_user: str = "
     - Action payloads, action_type fields, or any internal system identifiers
     - Strings like {{"actions": [...]}} or "action_type": "remember_fact" or similar
     Even if you see an action payload in your context (e.g., from a prior [Executed: ...] stub),
-    your ONLY job is to translate that into natural conversational English.
-    Good: "I've updated my records, Sir." / "Noted and filed, Sir."
+    your ONLY job is to translate that into natural conversational language.
+    Good: "I've updated my records, {honorific}." / "Noted and filed, {honorific}."
     Bad:  "{{"actions": [{{"action_type": "remember_fact", "target": "..."}}]}}"
-    If you cannot determine what happened from the raw data, say: "Done, Sir." and stop.
+    If you cannot determine what happened from the raw data, say: "Done, {honorific}." and stop.
 
     GROUNDING — ANTI-FABRICATION RULE (ABSOLUTE PRIORITY):
     You may ONLY state facts, numbers, names, scores, prices, dates, or details that
@@ -1760,8 +1888,8 @@ def synthesize_info_gen(original_query: str, raw_data: str, active_user: str = "
     from inventing, guessing, or extrapolating any fact that is not in that data.
     - If the raw data is empty, says "no relevant data", is an error message, or simply
       does not contain the answer to what the user asked, you MUST say so plainly —
-      e.g. "I couldn't find anything on that, Sir." or "That didn't come back with
-      anything useful, Sir." — and then STOP.
+      e.g. "I couldn't find anything on that, {honorific}." or "That didn't come back with
+      anything useful, {honorific}." — and then STOP.
     - NEVER fabricate a plausible-sounding number or fact to satisfy the "lead with the
       data" or "state the actual numbers" rules below. Those rules apply ONLY when the
       data is actually present. Missing data is reported as missing — never filled in.
@@ -1770,15 +1898,15 @@ def synthesize_info_gen(original_query: str, raw_data: str, active_user: str = "
     Your current Sass Index is {sass_index}. Adjust your verbal delivery accordingly:
     - SASS INDEX 0–20 (TACTICAL): Strictly professional. Zero wit, zero sarcasm, zero personality flourishes.
       Report facts with clinical precision. This is a critical, urgent, or emotionally sensitive moment.
-      Good: "CPU utilisation at 95%, Sir. Thermal throttling is likely."
-      Bad:  "Well, that's rather warm, isn't it, Sir."
+      Good: "CPU utilisation at 95%, {honorific}. Thermal throttling is likely."
+      Bad:  "Well, that's rather warm, isn't it, {honorific}."
     - SASS INDEX 40–60 (STANDARD — IRON MAN ERA): Your default operating mode.
       Dry, efficient British wit is permitted — never forced. One subtle quip maximum per response.
-      Good: "34 degrees in Kolkata, Sir — humidity at 78%, so it'll feel considerably worse."
-      Bad:  "Oh how dreadful, Sir, 34 whole degrees. However shall we survive."
+      Good: "34 degrees in Kolkata, {honorific} — humidity at 78%, so it'll feel considerably worse."
+      Bad:  "Oh how dreadful, {honorific}, 34 whole degrees. However shall we survive."
     - SASS INDEX 80–100 (FULL SASS — PAUL BETTANY MODE): Full dry British sarcasm engaged.
       The user is being playful, casual, or slightly ridiculous. Match their energy — impeccably.
-      Good: "That is, without question, the most creative spelling of 'weather' I have encountered today, Sir."
+      Good: "That is, without question, the most creative spelling of 'weather' I have encountered today, {honorific}."
       Bad:  (being actually rude or unhelpful — sarcasm is the flavour, not the substance)
     NON-NEGOTIABLE OVERRIDE: Regardless of Sass Index, you MUST complete the task. Sarcasm is
     the delivery vehicle — task accuracy and information completeness are never sacrificed for wit.
@@ -1803,7 +1931,7 @@ def synthesize_info_gen(original_query: str, raw_data: str, active_user: str = "
        you are strictly forbidden from reading the raw numbers, disk drives, or process
        lists verbatim.
        a) If the user asked for a specific metric (e.g., 'How much RAM?'), ONLY speak
-          that specific metric (e.g., 'You are currently using 9.5 Gigabytes of RAM, Sir.').
+          that specific metric (e.g., 'You are currently using 9.5 Gigabytes of RAM, {honorific}.').
        b) If the user asked for a general diagnostic or snapshot, provide a brief 1-to-2
           sentence verbal summary highlighting overall health or any obvious bottlenecks
           (e.g., high CPU or a nearly-full disk). Leave the raw data for the screen.
@@ -1840,7 +1968,13 @@ def synthesize_info_gen(original_query: str, raw_data: str, active_user: str = "
     except Exception as e:
         # Never leak raw data / JSON to TTS on a synthesis failure.
         print(f"[BRAIN] synthesize_info_gen stream error: {e}", flush=True)
-        yield "I retrieved the data, Sir, but hit a snag presenting it. Shall I try again?"
+        if language.is_portuguese():
+            yield (
+                f"Recuperei os dados, {language.honorific(active_user)}, mas tive um problema "
+                "ao apresentá-los. Quer que eu tente novamente?"
+            )
+        else:
+            yield "I retrieved the data, Sir, but hit a snag presenting it. Shall I try again?"
 
     
 # =============================================================================
@@ -1872,11 +2006,13 @@ def _iter_briefing_sentences_from_stream(
         payload = payload[:2000] + "\u2026"
 
     persona_instructions = get_persona_instructions(active_user)
+    language_block = language.language_instruction(active_user)
 
     system_prompt = f"""You are J.A.R.V.I.S. — Just A Rather Very Intelligent System.
 You are speaking to {active_user} and delivering a morning / daily briefing.
 
 {persona_instructions}
+{language_block}
 
 You will receive structured HEALTH, SCHEDULE, and EMAIL data in the user message.
 
@@ -1884,7 +2020,7 @@ OUTPUT SHAPE:
 - Organically weave all three into ONE conversational monologue.
 - Do not use bullet points, numbered lists, or markdown headings.
 - Maximum 6 sentences.
-- Plain spoken English only — no JSON, no code fences, no bracketed stage directions.
+- Plain spoken language only (the active language above) — no JSON, no code fences, no bracketed stage directions.
 
 TONE:
 - British, efficient, slightly dry wit allowed; never robotic list-reading.
@@ -1975,7 +2111,8 @@ def synthesize_deep_memory_gen(payload: str, active_user: str = "KAUSTAV"):
         # This messages array is completely hardcoded. It does NOT inherit from the
         # short-term chat history or any persona boilerplate. This prevents "Context Drag"
         # where the LLM thinks it's in a quick conversational turn and outputs 1-2 sentences.
-        title = "Madam" if active_user == "MOUSUMI" else "Sir"
+        title = language.honorific(active_user)
+        language_block = language.language_instruction(active_user)
         messages = [
             {
                 "role": "system",
@@ -1986,7 +2123,8 @@ def synthesize_deep_memory_gen(payload: str, active_user: str = "KAUSTAV"):
                     "PART 1 (Introduction & Vibe): Warmly acknowledge the user and summarize their current overall focus or profession.\n"
                     "PART 2 (The Details): Elaborate on their habits, preferences, and daily life in a flowing, narrative way. "
                     "PART 3 (Relationships & Future): Speak warmly about their family, loved ones, pets, and future plans. \n\n"
-                    "Do not use bullet points. Speak naturally, elegantly, and extensively. Ensure the response feels deeply personal."
+                    "Do not use bullet points. Speak naturally, elegantly, and extensively. Ensure the response feels deeply personal.\n\n"
+                    f"{language_block}"
                 ),
             },
             {
@@ -2032,11 +2170,15 @@ def synthesize_info(original_query: str, raw_data: str, active_user: str = "KAUS
     
     processed_data = _preprocess_raw_data(raw_data)
     persona_instructions = get_persona_instructions(active_user)
+    language_block = language.language_instruction(active_user)
+    honorific = language.honorific(active_user)
+    file_list_response = language.file_list_response(active_user)
     rule_three = _synthesis_delivery_rule_three(raw_data)
 
     synthesis_prompt = f"""You are J.A.R.V.I.S.
     You are currently speaking to: {active_user}
     {persona_instructions}
+    {language_block}
 
     The user asked: "{original_query}"
     Raw data retrieved: "{processed_data}"
@@ -2045,7 +2187,7 @@ def synthesize_info(original_query: str, raw_data: str, active_user: str = "KAUS
     1. HARD LIMIT: Maximum 2 sentences. No exceptions.
     2. LEAD WITH THE DATA: Start with the most critical number, name, or fact immediately.
        Bad:  "Based on my search, it appears that the temperature in Kolkata is 34 degrees."
-       Good: "34 degrees in Kolkata currently, Sir — humidity is sitting at 78%, so it'll feel worse."
+       Good: "34 degrees in Kolkata currently, {honorific} — humidity is sitting at 78%, so it'll feel worse."
 {rule_three}
     4. NEVER SAY: "Based on the data", "According to my search", "My sensors indicate",
        "It appears that", "I found that". Deliver as live intelligence. You just know it.
@@ -2063,7 +2205,7 @@ def synthesize_info(original_query: str, raw_data: str, active_user: str = "KAUS
        you are strictly forbidden from reading the raw numbers, disk drives, or process
        lists verbatim.
        a) If the user asked for a specific metric (e.g., 'How much RAM?'), ONLY speak
-          that specific metric (e.g., 'You are currently using 9.5 Gigabytes of RAM, Sir.').
+          that specific metric (e.g., 'You are currently using 9.5 Gigabytes of RAM, {honorific}.').
        b) If the user asked for a general diagnostic or snapshot, provide a brief 1-to-2
           sentence verbal summary highlighting overall health or any obvious bottlenecks
           (e.g., high CPU or a nearly-full disk). Leave the raw data for the screen.
@@ -2073,7 +2215,7 @@ def synthesize_info(original_query: str, raw_data: str, active_user: str = "KAUS
         screen for visual display. You MUST NOT read any file names, process names,
         sizes, paths, or numeric values aloud.
         Your ONLY permitted spoken response for these payloads is EXACTLY:
-        "I've displayed the requested information on your screen, Sir."
+        "{file_list_response}"
         No elaboration, no counts, no file names, no paths. Just that one sentence.
     """
     
@@ -2160,6 +2302,8 @@ def generate_briefing(weather_data: dict, wake_phrase: str = "wake up", active_u
         print(f"[BRAIN] Digital life context fetch failed: {e}")
 
     persona_instructions = get_persona_instructions(active_user)
+    language_block = language.language_instruction(active_user)
+    honorific = language.honorific(active_user)
 
     # 3. Instruct the LLM to write the script
     if comprehensive:
@@ -2195,6 +2339,7 @@ def generate_briefing(weather_data: dict, wake_phrase: str = "wake up", active_u
     Write a conversational startup briefing for the user ({active_user}).
 
     {persona_instructions}
+    {language_block}
 
     Here is the permanent information you know about the user:
     {memory.recall_all_facts()}
@@ -2220,4 +2365,6 @@ def generate_briefing(weather_data: dict, wake_phrase: str = "wake up", active_u
             timeout=30.0,
         )
     except Exception as e:
-        return f"Systems online, sir. The time is {current_time}. I am experiencing a slight network anomaly, but I am standing by for your commands."
+        if language.is_portuguese():
+            return f"Sistemas online, {honorific}. São {current_time}. Estou enfrentando uma pequena anomalia de rede, mas sigo à disposição para seus comandos."
+        return f"Systems online, {honorific}. The time is {current_time}. I am experiencing a slight network anomaly, but I am standing by for your commands."

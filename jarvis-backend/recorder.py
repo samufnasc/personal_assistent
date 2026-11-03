@@ -1,6 +1,7 @@
 import speech_recognition as sr
 import speaker 
 import time # --- NEW: Required for the holding pattern ---
+from modules import language
 
 # ==========================================
 # PHASE 8: LOCAL STT TOGGLE
@@ -103,8 +104,9 @@ def listen_to_mic(status_callback=None):
                 else:
                     try:
                         import concurrent.futures
+                        stt_lang = "pt-BR" if language.is_portuguese() else "en-US"
                         with concurrent.futures.ThreadPoolExecutor() as pool:
-                            future = pool.submit(recognizer.recognize_google, audio)
+                            future = pool.submit(recognizer.recognize_google, audio, language=stt_lang)
                             text = future.result(timeout=7)  # 7-second hard cap
                     except concurrent.futures.TimeoutError:
                         print("[EARS] Google Cloud STT timed out (7s).")

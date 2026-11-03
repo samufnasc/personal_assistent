@@ -220,7 +220,7 @@ def _call_groq(messages, temperature, max_tokens, stream, json_mode, timeout):
     models_to_try = []
     if GROQ_MODEL:
         models_to_try.append(GROQ_MODEL)
-    for m in ["openai/gpt-oss-120b", "qwen/qwen3.8-27b", "llama-3.3-70b-versatile"]:
+    for m in ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]:
         if m not in models_to_try:
             models_to_try.append(m)
 

@@ -45,6 +45,7 @@ from modules.session_manager import COMMAND_LOCK, CallbackChannel, SESSIONS  # -
 from modules import telegram_bot  # --- Telegram Remote Gateway ---
 from modules import planner  # --- ReAct Orchestrator (Roadmap §1.2) ---
 from modules import fast_path  # --- Deterministic low-latency lane (Roadmap §3.4) ---
+from modules import language  # --- Conversation language (EN/PT) ---
 # Phase 6 – Governance Engine
 from governance_manager import governance_manager
 from socket_manager import register_client, unregister_client, send_ui_update, set_app_loop
@@ -1007,7 +1008,27 @@ async def get_context():
     if _last_command_time is not None:
         secs = (_dt.datetime.now() - _last_command_time).total_seconds()
     state = context_state.current(seconds_since_command=secs)
-    return {"state": state, "since": context_state.changed_at}
+    return {"state": state, "since": context_state.changed_at, "language": language.get_language()}
+
+
+class LanguageRequest(BaseModel):
+    language: str
+
+
+@app.get("/api/language")
+async def get_language():
+    return {"language": language.get_language()}
+
+
+@app.post("/api/language")
+async def set_language(req: LanguageRequest):
+    if not language.set_language(req.language):
+        return {
+            "success": False,
+            "language": language.get_language(),
+            "error": "Unsupported language. Use 'en' or 'pt'.",
+        }
+    return {"success": True, "language": language.get_language()}
 
 
 @app.post("/api/ui_state")
@@ -1645,6 +1666,8 @@ async def backdoor_command(req: BackdoorRequest):
                 # Fall through to the standard pipeline on any planner error.
 
         llm_response = await asyncio.to_thread(process_command, command_text, active_user)
+        if language.detect_switch_command(command_text):
+            await safe_send_all({"type": "language", "language": language.get_language()})
         clean_response = llm_response.replace("```json", "").replace("```", "").strip()
         print(f"[SERIAL MONITOR] 🧠 LLM RAW RESPONSE:\n{clean_response}", flush=True)
         
@@ -2459,6 +2482,8 @@ async def websocket_endpoint(websocket: WebSocket):
                                 episodic_memory.log_turn("user", command_text, active_user)
                                 
                                 llm_response = await asyncio.to_thread(process_command, command_text, active_user)
+                                if language.detect_switch_command(command_text):
+                                    await safe_send({"type": "language", "language": language.get_language()})
                                 clean_response = llm_response.replace("```json", "").replace("```", "").strip()
                                 
                                 # If the LLM wrapped the JSON in string quotes

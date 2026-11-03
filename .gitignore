@@ -32,3 +32,7 @@ jarvis-frontend/dist/
 # OS Files
 .DS_Store
 .env
+
+# Runtime settings and private screenshots
+jarvis-backend/jarvis_settings.json
+imagens_secretas/

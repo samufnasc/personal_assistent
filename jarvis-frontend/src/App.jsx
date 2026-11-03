@@ -142,6 +142,7 @@ function App() {
 
   // --- NEW: Backdoor Command State ---
   const [backdoorCommand, setBackdoorCommand] = useState("");
+  const [language, setLanguage] = useState("en");
 
   const [searchResult, setSearchResult] = useState("");
   const [searchImage, setSearchImage] = useState(null);
@@ -204,6 +205,15 @@ function App() {
     }, 1000);
   }, []);
 
+  useEffect(() => {
+    fetch("http://localhost:8000/api/language")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.language) setLanguage(data.language);
+      })
+      .catch(() => {});
+  }, []);
+
   // --- IDLE CHATTER PROTOCOL ---
   useEffect(() => {
     if (status !== "online" || logSpeaker !== "SYSTEM") return;
@@ -242,6 +252,11 @@ function App() {
 
     socket.current.onmessage = (event) => {
       const data = JSON.parse(event.data);
+
+      if (data.type === "language" && data.language) {
+        setLanguage(data.language);
+        return;
+      }
 
       // --- Structured data overlay (files / processes) — bypass chat + system log ---
       if (data.ui_action) {
@@ -488,6 +503,33 @@ function App() {
       setLogSpeaker("SYSTEM");
       setLogTextRaw("INITIALIZING MIC OVERRIDE...");
       socket.current.send("START_LISTENING");
+    }
+  };
+
+  const changeLanguage = async (next) => {
+    if (next === language) return;
+    try {
+      const res = await fetch("http://localhost:8000/api/language", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ language: next }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const active = data.language || next;
+      setLanguage(active);
+      setIsChatOpen(true);
+      setChatMessages((prev) =>
+        mergeChat(
+          prev,
+          "J.A.R.V.I.S",
+          active === "pt"
+            ? "A partir de agora, responderei em português, Senhor."
+            : "I'll respond in English from now on, Sir.",
+        ),
+      );
+    } catch (e) {
+      console.error("Language switch error:", e);
     }
   };
 
@@ -941,6 +983,22 @@ function App() {
               title="Media / browser"
             >
               MEDIA
+            </button>
+            <button
+              type="button"
+              onClick={() => changeLanguage("en")}
+              className={language === "en" ? "is-active" : ""}
+              title="Conversation language: English"
+            >
+              EN
+            </button>
+            <button
+              type="button"
+              onClick={() => changeLanguage("pt")}
+              className={language === "pt" ? "is-active" : ""}
+              title="Idioma da conversa: Português (Brasil)"
+            >
+              PT-BR
             </button>
             <button
               type="button"

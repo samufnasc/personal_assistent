@@ -45,7 +45,7 @@ def _mem_err(reason: str, detail: object | None = None) -> None:
 
 
 # Fast, cheap model for background extraction (does not compete with main LLM latency).
-_EXTRACTION_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")   # Fast 8B — swap if needed.
+_EXTRACTION_MODEL: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")   # Current Groq flagship — swap if needed.
 
 # ── Database path ─────────────────────────────────────────────────────────────
 # Stored next to the existing jarvis_memory.db so both live in the same dir.

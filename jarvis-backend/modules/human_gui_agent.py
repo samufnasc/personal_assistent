@@ -781,7 +781,7 @@ class HumanGUIAgent:
         try:
             completion = run_with_key_rotation(
                 lambda c: c.chat.completions.create(
-                    model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+                    model=os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"),
                     messages=[{"role": "user", "content": extraction_prompt}],
                     temperature=0.4,
                     max_tokens=512,

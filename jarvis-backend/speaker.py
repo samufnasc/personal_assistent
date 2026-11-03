@@ -10,6 +10,7 @@ import time # --- NEW: Needed for file lock release ---
 import glob
 import io
 import wave
+from modules import language
 
 # ==========================================
 # PHASE 8: LOCAL TTS TOGGLE
@@ -18,7 +19,14 @@ import wave
 # ==========================================
 USE_LOCAL_TTS = False
 
-VOICE = "en-GB-RyanNeural"
+VOICE_EN = "en-GB-RyanNeural"
+VOICE_PT = "pt-BR-AntonioNeural"
+VOICE = VOICE_EN
+
+
+def _voice() -> str:
+    """Pick the Edge TTS voice that matches the active conversation language."""
+    return VOICE_PT if language.is_portuguese() else VOICE_EN
 
 # ==========================================
 # §3.5 EMOTIONAL PROSODY
@@ -234,7 +242,7 @@ async def _speak_local(text):
             # Fallback: use Edge TTS for this one segment
             fallback_file = f"temp_speech_{unique_id}_{i}.mp3"
             try:
-                communicate = edge_tts.Communicate(segment, VOICE)
+                communicate = edge_tts.Communicate(segment, _voice())
                 await communicate.save(fallback_file)
                 await asyncio.to_thread(_play_audio, fallback_file)
             except Exception as e2:
@@ -273,7 +281,7 @@ async def _speak_cloud(text):
                     
             elif tag == "sigh":
                 audio_file = f"temp_sigh_{unique_id}_{i}.mp3"
-                comm = edge_tts.Communicate("Haaaah.", VOICE, rate="-20%", pitch="-15Hz")
+                comm = edge_tts.Communicate("Haaaah.", _voice(), rate="-20%", pitch="-15Hz")
                 await comm.save(audio_file)
                 await asyncio.to_thread(_play_audio, audio_file)
                 
@@ -296,12 +304,12 @@ async def _speak_cloud(text):
                 
             audio_file = f"temp_speech_{unique_id}_{i}.mp3"
             try:
-                communicate = edge_tts.Communicate(segment, VOICE, rate=current_rate, pitch=current_pitch)
+                communicate = edge_tts.Communicate(segment, _voice(), rate=current_rate, pitch=current_pitch)
                 await communicate.save(audio_file)
             except Exception as e:
                 print(f"[SPEAKER WARNING] TTS synthesis failed for segment, retrying with defaults: {e}")
                 try:
-                    communicate = edge_tts.Communicate(segment, VOICE)
+                    communicate = edge_tts.Communicate(segment, _voice())
                     await communicate.save(audio_file)
                 except Exception as e2:
                     print(f"[SPEAKER WARNING] Segment skipped (unsynthesizable): '{segment[:40]}'")

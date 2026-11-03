@@ -38,7 +38,7 @@ REQUIRED ENV
 OPTIONAL ENV
 ------------
     TELEGRAM_GF_ID / TELEGRAM_BROTHER_ID   VIP guest numeric ids
-    GROQ_MODEL             default llama-3.3-70b-versatile (good remote chat)
+    GROQ_MODEL             default openai/gpt-oss-120b (good remote chat)
     GROQ_VISION_MODEL      default meta-llama/llama-4-scout-17b-16e-instruct
                            (answers Telegram photos)
     GROQ_WHISPER_MODEL     default whisper-large-v3 (transcribes Telegram voice
@@ -77,7 +77,7 @@ BOT_TOKEN = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
 MODE = (os.getenv("CLOUD_GATEWAY_MODE") or "webhook").strip().lower()
 PUBLIC_URL = (os.getenv("PUBLIC_URL") or "").strip().rstrip("/")
 PORT = int(os.getenv("PORT", "8080"))
-GROQ_MODEL = (os.getenv("GROQ_MODEL") or "llama-3.3-70b-versatile").strip()
+GROQ_MODEL = (os.getenv("GROQ_MODEL") or "openai/gpt-oss-120b").strip()
 GROQ_VISION_MODEL = (os.getenv("GROQ_VISION_MODEL")
                      or "meta-llama/llama-4-scout-17b-16e-instruct").strip()
 GROQ_WHISPER_MODEL = (os.getenv("GROQ_WHISPER_MODEL") or "whisper-large-v3").strip()

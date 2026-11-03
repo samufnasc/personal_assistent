@@ -4,22 +4,25 @@ import time
 import wave
 import numpy as np
 from faster_whisper import WhisperModel
+from modules import language
 
 class LocalSTT:
-    def __init__(self, model_size="tiny.en", compute_type="int8"):
+    def __init__(self, model_size=None, compute_type="int8"):
         """
         Initializes the local faster-whisper model.
-        tiny.en and base.en use very little RAM/CPU and run incredibly fast.
+        English uses the tiny.en model; Portuguese uses the multilingual tiny model.
         """
-        print(f"[LOCAL STT] Loading Whisper model ({model_size}) into memory...")
+        self.model_size = model_size or ("tiny" if language.is_portuguese() else "tiny.en")
+        self.language = "pt" if language.is_portuguese() else "en"
+        print(f"[LOCAL STT] Loading Whisper model ({self.model_size}) into memory...")
         start = time.time()
         # cpu device is forced to avoid needing CUDA setup, int8 keeps RAM usage low
-        self.model = WhisperModel(model_size, device="cpu", compute_type=compute_type)
+        self.model = WhisperModel(self.model_size, device="cpu", compute_type=compute_type)
         print(f"[LOCAL STT] Model loaded in {time.time() - start:.2f} seconds.")
 
     def transcribe_audio_file(self, file_path: str) -> str:
         """Transcribes an audio file on disk."""
-        segments, info = self.model.transcribe(file_path, beam_size=1)
+        segments, info = self.model.transcribe(file_path, beam_size=1, language=self.language)
         text = "".join([segment.text for segment in segments])
         return text.strip()
 
@@ -35,7 +38,7 @@ class LocalSTT:
             audio_tensor = torch.from_numpy(audio_np)
             audio_np = resampler(audio_tensor).numpy()
         
-        segments, info = self.model.transcribe(audio_np, beam_size=1)
+        segments, info = self.model.transcribe(audio_np, beam_size=1, language=self.language)
         text = "".join([segment.text for segment in segments])
         return text.strip()
 
@@ -44,8 +47,9 @@ _instance = None
 
 def get_stt() -> LocalSTT:
     global _instance
-    if _instance is None:
-        _instance = LocalSTT(model_size="tiny.en")
+    desired = "tiny" if language.is_portuguese() else "tiny.en"
+    if _instance is None or _instance.model_size != desired:
+        _instance = LocalSTT(model_size=desired)
     return _instance
 
 if __name__ == "__main__":

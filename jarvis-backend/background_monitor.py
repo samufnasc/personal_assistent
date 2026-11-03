@@ -5,6 +5,12 @@ import datetime
 import random
 import sensors
 from ambient_vision import shared_optical_cache
+from modules import language
+
+
+def _t(en: str, pt: str) -> str:
+    """Return the Portuguese variant when the active conversation language is PT."""
+    return pt if language.is_portuguese() else en
 
 class ProactiveAgent:
     """
@@ -74,19 +80,28 @@ class ProactiveAgent:
                 telemetry = await asyncio.to_thread(sensors.get_system_telemetry)
                 
                 if telemetry["cpu_percent"] > 90:
-                    message = f"Sir, I'm detecting sustained CPU utilisation at {telemetry['cpu_percent']}%. You may have a runaway process. Shall I investigate?"
+                    message = _t(
+                        f"Sir, I'm detecting sustained CPU utilisation at {telemetry['cpu_percent']}%. You may have a runaway process. Shall I investigate?",
+                        f"Senhor, estou detectando uso sustentado de CPU em {telemetry['cpu_percent']}%. Pode haver um processo descontrolado. Quer que eu investigue?",
+                    )
                     await self._trigger_event(message)
                     self.last_health_alert_time = now
                     return
                 
                 if telemetry["ram_percent"] > 85:
-                    message = f"A word of caution, sir. System memory is at {telemetry['ram_percent']}% — {telemetry['ram_used_gb']}GB of {telemetry['ram_total_gb']}GB consumed. You may want to close some applications."
+                    message = _t(
+                        f"A word of caution, sir. System memory is at {telemetry['ram_percent']}% — {telemetry['ram_used_gb']}GB of {telemetry['ram_total_gb']}GB consumed. You may want to close some applications.",
+                        f"Um aviso, Senhor. A memória do sistema está em {telemetry['ram_percent']}% — {telemetry['ram_used_gb']}GB de {telemetry['ram_total_gb']}GB consumidos. Talvez seja bom fechar alguns aplicativos.",
+                    )
                     await self._trigger_event(message)
                     self.last_health_alert_time = now
                     return
                     
                 if telemetry["disk_percent"] > 90:
-                    message = f"Sir, disk utilisation has exceeded 90%. Only {telemetry['disk_free_gb']}GB remaining. I'd recommend some housekeeping."
+                    message = _t(
+                        f"Sir, disk utilisation has exceeded 90%. Only {telemetry['disk_free_gb']}GB remaining. I'd recommend some housekeeping.",
+                        f"Senhor, o uso do disco passou de 90%. Restam apenas {telemetry['disk_free_gb']}GB. Eu recomendaria uma limpeza.",
+                    )
                     await self._trigger_event(message)
                     self.last_health_alert_time = now
                     return
@@ -99,9 +114,18 @@ class ProactiveAgent:
         hours_active = (now - self.session_start_time) / 3600
         if not self.is_focus_mode_active and hours_active > 2.0:
             messages = [
-                "Pardon the interruption, sir, but you've been at this for over two hours. Even I run garbage collection periodically. Might I suggest a brief recess?",
-                "Sir, you've been working continuously for over two hours now. Your cognitive performance may benefit from a short break. Just a thought.",
-                "Two hours and counting, sir. I don't mean to nag, but your wellbeing is rather important to the continued operation of this household.",
+                _t(
+                    "Pardon the interruption, sir, but you've been at this for over two hours. Even I run garbage collection periodically. Might I suggest a brief recess?",
+                    "Peço desculpas, Senhor, mas você está há mais de duas horas nisso. Mesmo eu faço coleta de lixo periodicamente. Sugestão de breve recessso?",
+                ),
+                _t(
+                    "Sir, you've been working continuously for over two hours now. Your cognitive performance may benefit from a short break. Just a thought.",
+                    "Senhor, você está trabalhando continuamente há mais de duas horas agora. Seu desempenho cognitivo pode se beneficiar de um breve intervalo. Apenas um pensamento.",
+                ),
+                _t(
+                    "Two hours and counting, sir. I don't mean to nag, but your wellbeing is rather important to the continued operation of this household.",
+                    "Duas horas e contando, Senhor. Não quero te chatear, mas seu bem-estar é bastante importante para a operação continuada desta casa.",
+                ),
             ]
             await self._trigger_event(random.choice(messages))
             self.session_start_time = now  # Reset to avoid spamming
@@ -112,9 +136,18 @@ class ProactiveAgent:
         # ==========================================
         if not self.is_focus_mode_active and (hour >= 1 and hour < 5) and (now - self.last_late_night_nudge > self.late_night_cooldown):
             late_messages = [
-                f"Sir, it is currently {datetime.datetime.now().strftime('%I:%M %p')}. I appreciate the dedication, but your body may have a dissenting opinion about this schedule.",
-                f"The time is {datetime.datetime.now().strftime('%I:%M %p')}, sir. I'm rather certain your circadian rhythm would prefer you horizontal at this hour.",
-                f"It's past {datetime.datetime.now().strftime('%I %p')}, sir. Even the most determined minds require rest. Shall I begin shutdown protocols?",
+                _t(
+                    f"Sir, it is currently {datetime.datetime.now().strftime('%I:%M %p')}. I appreciate the dedication, but your body may have a dissenting opinion about this schedule.",
+                    f"Senhor, são {datetime.datetime.now().strftime('%I:%M %p')}. Eu aprecio a dedicação, mas seu corpo pode ter uma opinião diversa sobre este horário.",
+                ),
+                _t(
+                    f"The time is {datetime.datetime.now().strftime('%I:%M %p')}, sir. I'm rather certain your circadian rhythm would prefer you horizontal at this hour.",
+                    f"O horário é {datetime.datetime.now().strftime('%I:%M %p')}, Senhor. Tenho quase certeza de que seu ritmo circadiano preferiria que você estivesse horizontal neste horário.",
+                ),
+                _t(
+                    f"It's past {datetime.datetime.now().strftime('%I %p')}, sir. Even the most determined minds require rest. Shall I begin shutdown protocols?",
+                    f"Passadas {datetime.datetime.now().strftime('%I %p')}, Senhor. Mesmo as mentes mais determinadas precisam de repouso. Shall I begin shutdown protocols?",
+                ),
             ]
             await self._trigger_event(random.choice(late_messages))
             self.last_late_night_nudge = now
